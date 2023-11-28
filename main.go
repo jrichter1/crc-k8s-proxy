@@ -85,6 +85,7 @@ func (m *SimpleMangler) modifier(request *http.Request) {
 		request.URL.Host = m.Config.RegistrationURL.Host
 		request.URL.Scheme = m.Config.RegistrationURL.Scheme
 		request.Host = m.Config.RegistrationURL.Host
+		request.URL.Path = strings.Split(request.URL.Path, "/k8s/registration")[1]
 		request.Header.Set("Origin", fmt.Sprintf("%s://%s", m.Config.RegistrationURL.Scheme, m.Config.RegistrationURL.Host))
 	} else {
 		request.URL.Host = m.Config.K8SURL.Host
@@ -135,6 +136,7 @@ func (m *AuthMangler) modifier(request *http.Request) {
 		request.URL.Host = m.Config.RegistrationURL.Host
 		request.URL.Scheme = m.Config.RegistrationURL.Scheme
 		request.Host = m.Config.RegistrationURL.Host
+		request.URL.Path = strings.Split(request.URL.Path, "/k8s/registration")[1]
 	} else {
 		request.URL.Host = m.Config.K8SURL.Host
 		request.URL.Scheme = m.Config.K8SURL.Scheme
