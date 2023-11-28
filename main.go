@@ -19,10 +19,11 @@ type Realm struct {
 }
 
 type ManglerConfig struct {
-	K8SURL    url.URL
-	Bearer    string
-	PublicKey string
-	Validator *CRCAuthValidator
+	K8SURL          url.URL
+	RegistrationURL url.URL
+	Bearer          string
+	PublicKey       string
+	Validator       *CRCAuthValidator
 }
 
 type AuthMangler struct {
@@ -64,10 +65,11 @@ func (rtf *roundTripFilter) RoundTrip(r *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-func NewSimpleMangler(k8sURL url.URL, logger *log.Logger) (ManglerObject, error) {
+func NewSimpleMangler(k8sURL url.URL, registrationURL url.URL, logger *log.Logger) (ManglerObject, error) {
 	m := &SimpleMangler{
 		Config: &ManglerConfig{
-			K8SURL: k8sURL,
+			K8SURL:          k8sURL,
+			RegistrationURL: registrationURL,
 		},
 		Log: logger,
 	}
@@ -75,17 +77,24 @@ func NewSimpleMangler(k8sURL url.URL, logger *log.Logger) (ManglerObject, error)
 }
 
 func (m *SimpleMangler) modifier(request *http.Request) {
-	request.URL.Host = m.Config.K8SURL.Host
-	request.URL.Scheme = m.Config.K8SURL.Scheme
-	request.Host = m.Config.K8SURL.Host
 	if strings.HasPrefix(request.URL.Path, "/wss/k8s") {
 		path := strings.Replace(request.URL.Path, "/wss/k8s", "", 1)
 		request.URL.Path = path
 	}
-	request.Header.Set("Origin", fmt.Sprintf("%s://%s", m.Config.K8SURL.Scheme, m.Config.K8SURL.Host))
+	if strings.HasPrefix(request.URL.Path, "/api/k8s/registration") {
+		request.URL.Host = m.Config.RegistrationURL.Host
+		request.URL.Scheme = m.Config.RegistrationURL.Scheme
+		request.Host = m.Config.RegistrationURL.Host
+		request.Header.Set("Origin", fmt.Sprintf("%s://%s", m.Config.RegistrationURL.Scheme, m.Config.RegistrationURL.Host))
+	} else {
+		request.URL.Host = m.Config.K8SURL.Host
+		request.URL.Scheme = m.Config.K8SURL.Scheme
+		request.Host = m.Config.K8SURL.Host
+		request.Header.Set("Origin", fmt.Sprintf("%s://%s", m.Config.K8SURL.Scheme, m.Config.K8SURL.Host))
+	}
 }
 
-func NewAuthMangler(k8sURL url.URL, logger *log.Logger) (ManglerObject, error) {
+func NewAuthMangler(k8sURL url.URL, registrationURL url.URL, logger *log.Logger) (ManglerObject, error) {
 
 	token := os.Getenv("HJ_TOKEN")
 	if token == "" {
@@ -107,9 +116,10 @@ func NewAuthMangler(k8sURL url.URL, logger *log.Logger) (ManglerObject, error) {
 
 	m := &AuthMangler{
 		Config: &ManglerConfig{
-			K8SURL:    k8sURL,
-			Bearer:    token,
-			Validator: validator,
+			K8SURL:          k8sURL,
+			RegistrationURL: registrationURL,
+			Bearer:          token,
+			Validator:       validator,
 		},
 		Log: logger,
 	}
@@ -121,9 +131,15 @@ func (m *AuthMangler) modifier(request *http.Request) {
 	if err != nil {
 		request.Header.Add(authError, "bad auth error")
 	}
-	request.URL.Host = m.Config.K8SURL.Host
-	request.URL.Scheme = m.Config.K8SURL.Scheme
-	request.Host = m.Config.K8SURL.Host
+	if strings.HasPrefix(request.URL.Path, "/api/k8s/registration") {
+		request.URL.Host = m.Config.RegistrationURL.Host
+		request.URL.Scheme = m.Config.RegistrationURL.Scheme
+		request.Host = m.Config.RegistrationURL.Host
+	} else {
+		request.URL.Host = m.Config.K8SURL.Host
+		request.URL.Scheme = m.Config.K8SURL.Scheme
+		request.Host = m.Config.K8SURL.Host
+	}
 	request.Header.Del("Authorization")
 	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", m.Config.Bearer))
 }
@@ -132,11 +148,6 @@ var logger *log.Logger
 
 func init() {
 	logger = log.New(os.Stdout, "", log.LstdFlags)
-}
-
-func signup(w http.ResponseWriter, r *http.Request) {
-	logger.Println(r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
-	w.Write([]byte("{\"status\":{\"ready\":true}}"))
 }
 
 func proxyErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
@@ -153,6 +164,11 @@ func getMux() *http.ServeMux {
 	k8sURL := os.Getenv("HJ_K8S")
 	if k8sURL == "" {
 		panic("HJ_K8s env var missing")
+	}
+
+	registrationURL := os.Getenv("HJ_REG")
+	if registrationURL == "" {
+		panic("HJ_REG env var missing")
 	}
 
 	mode := os.Getenv("HJ_MODE")
@@ -173,11 +189,15 @@ func getMux() *http.ServeMux {
 		panic(err)
 	}
 
-	rpURL, err := url.Parse(k8sURL)
+	regURL, err := url.Parse(registrationURL)
 	if err != nil {
 		panic(err)
 	}
 
+	rpURL, err := url.Parse(k8sURL)
+	if err != nil {
+		panic(err)
+	}
 	logger.Printf("Forwarding to: %s\n", k8sURL)
 	logger.Printf("Proxy SSL mode on: %t\n", proxySSL)
 
@@ -186,11 +206,13 @@ func getMux() *http.ServeMux {
 	if mode == "simple" {
 		mangler, err = NewSimpleMangler(
 			*rpURL,
+			*regURL,
 			logger,
 		)
 	} else {
 		mangler, err = NewAuthMangler(
 			*rpURL,
+			*regURL,
 			logger,
 		)
 	}
@@ -222,7 +244,6 @@ func getMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.Handle("/", &proxy)
-	mux.HandleFunc("/registration/api/v1/signup", signup)
 
 	return mux
 }

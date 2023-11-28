@@ -106,6 +106,7 @@ func (suite *SimplePassthroughTestSuite) SetupSuite() {
 	}))
 	suite.k8s = normalServer
 	os.Setenv("HJ_K8S", suite.k8s.URL)
+	os.Setenv("HJ_REG", suite.k8s.URL)
 
 	suite.sut = httptest.NewServer(getMux())
 }
