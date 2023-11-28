@@ -81,11 +81,11 @@ func (m *SimpleMangler) modifier(request *http.Request) {
 		path := strings.Replace(request.URL.Path, "/wss/k8s", "", 1)
 		request.URL.Path = path
 	}
-	if strings.HasPrefix(request.URL.Path, "/api/k8s/registration") {
+	if strings.HasPrefix(request.URL.Path, "/api/k8s/registration") || strings.HasPrefix(request.URL.Path, "/registration") {
 		request.URL.Host = m.Config.RegistrationURL.Host
 		request.URL.Scheme = m.Config.RegistrationURL.Scheme
 		request.Host = m.Config.RegistrationURL.Host
-		request.URL.Path = strings.Split(request.URL.Path, "/k8s/registration")[1]
+		request.URL.Path = strings.Split(request.URL.Path, "/registration")[1]
 		request.Header.Set("Origin", fmt.Sprintf("%s://%s", m.Config.RegistrationURL.Scheme, m.Config.RegistrationURL.Host))
 	} else {
 		request.URL.Host = m.Config.K8SURL.Host
